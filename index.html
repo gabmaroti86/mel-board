@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MEL Flight Board — Departures & Arrivals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#070B12; --panel:#0E1722; --panel-2:#0B131D;
+    --line:#1C2A3A; --line-soft:#16212E;
+    --phosphor:#34E2C4; --amber:#FFB23E; --danger:#FF5C6A;
+    --steel:#6B8299; --bone:#DCE6EF;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:radial-gradient(1200px 600px at 70% -10%, #0c1b27 0%, transparent 60%), var(--void);
+    color:var(--bone);
+    font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:"JetBrains Mono",ui-monospace,monospace}
+  .app{display:flex;flex-direction:column;min-height:100dvh;max-width:1100px;margin:0 auto}
+
+  /* header */
+  header{display:flex;align-items:center;gap:16px;padding:12px 16px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,var(--panel),var(--panel-2));position:sticky;top:0;z-index:5}
+  .ident{display:flex;align-items:baseline;gap:10px}
+  .ident .iata{font-family:"Oswald";font-weight:600;font-size:30px;line-height:1;letter-spacing:.04em}
+  .ident .meta b{font-family:"Oswald";font-weight:500;font-size:12px;letter-spacing:.18em;color:var(--phosphor);display:block}
+  .ident .meta span{font-size:11px;color:var(--steel)}
+  .badge{font-family:"Oswald";font-size:10px;letter-spacing:.14em;padding:4px 9px;border-radius:5px;
+    border:1px solid var(--amber);color:var(--amber);white-space:nowrap}
+  .badge.live{border-color:var(--phosphor);color:var(--phosphor)}
+  .clock{margin-left:auto;text-align:right}
+  .clock .t{font-family:"JetBrains Mono";font-size:22px;font-weight:500}
+  .clock .d{font-size:11px;color:var(--steel);letter-spacing:.06em}
+
+  /* controls */
+  .controls{display:flex;flex-direction:column;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);
+    background:var(--panel-2);position:sticky;top:65px;z-index:4}
+  .row1{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#0a121b}
+  .seg button{appearance:none;border:0;background:transparent;color:var(--steel);
+    font-family:"Oswald";font-size:14px;letter-spacing:.1em;text-transform:uppercase;
+    padding:10px 20px;cursor:pointer;border-right:1px solid var(--line);min-height:42px;display:flex;align-items:center;gap:8px}
+  .seg button:last-child{border-right:0}
+  .seg button .ar{font-size:15px}
+  .seg button[aria-pressed="true"]{color:var(--void);background:var(--amber)}
+  .seg button[data-k="arr"][aria-pressed="true"]{background:var(--phosphor)}
+  .seg button[data-k="both"][aria-pressed="true"]{background:var(--bone)}
+
+  .fl .al .dt{display:inline-block;font-family:"Oswald";font-size:9px;font-weight:600;letter-spacing:.1em;
+    padding:1px 5px;border-radius:3px;margin-right:6px;vertical-align:1px}
+  .dt.dep{background:rgba(255,178,62,.16);color:var(--amber)}
+  .dt.arr{background:rgba(52,226,196,.16);color:var(--phosphor)}
+  .rego{color:var(--steel);cursor:pointer;border-bottom:1px dashed #2b3f52}
+  .rego:hover{color:var(--phosphor);border-color:var(--phosphor)}
+  .rows.both .row.dir-dep{box-shadow:inset 3px 0 0 var(--amber)}
+  .rows.both .row.dir-arr{box-shadow:inset 3px 0 0 var(--phosphor)}
+
+  .search{position:relative;flex:1 1 180px;min-width:140px}
+  .search input{width:100%;background:#0a121b;border:1px solid var(--line);border-radius:8px;color:var(--bone);
+    padding:10px 12px 10px 34px;font-family:"JetBrains Mono";font-size:13px;min-height:42px}
+  .search input::placeholder{color:#3f566c}
+  .search input:focus{outline:none;border-color:var(--phosphor)}
+  .search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:#3f566c}
+
+  .row2{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+  .chip{appearance:none;border:1px solid var(--line);background:#0a121b;color:var(--steel);
+    font-family:"Oswald";font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    padding:7px 13px;border-radius:20px;cursor:pointer;min-height:34px}
+  .chip[aria-pressed="true"]{background:#152634;color:var(--bone);border-color:var(--phosphor)}
+  .chip.lbl{cursor:default;border:0;color:#41566b;padding-left:0;letter-spacing:.16em}
+  .grow{flex:1}
+  .count{font-family:"JetBrains Mono";font-size:11px;color:var(--steel)}
+
+  /* board head + rows */
+  .head{display:grid;grid-template-columns:96px 1fr 132px 56px 118px;gap:10px;
+    padding:9px 16px;border-bottom:1px solid var(--line);
+    font-family:"Oswald";font-size:10px;letter-spacing:.16em;color:var(--steel);text-transform:uppercase}
+  .head span:nth-child(4){text-align:center}
+  .head span:nth-child(5){text-align:right}
+
+  .rows{display:flex;flex-direction:column}
+  .row{display:grid;grid-template-columns:96px 1fr 132px 56px 118px;gap:10px;align-items:center;
+    padding:13px 16px;border-bottom:1px solid var(--line-soft)}
+  .row:hover{background:#101d29}
+
+  .time .sch{font-family:"JetBrains Mono";font-size:17px;font-weight:700;color:var(--bone);line-height:1.05}
+  .time .est{font-family:"JetBrains Mono";font-size:11px;margin-top:2px}
+  .time .est.late{color:var(--amber)} .time .est.bad{color:var(--danger)} .time .est.ok{color:var(--steel)}
+  .time .eta{font-family:"JetBrains Mono";font-size:11px;color:var(--steel);margin-top:3px}
+  .time .eta.soon{color:var(--phosphor)}
+  .wc-eta{display:block;font-family:"JetBrains Mono";font-size:10px;color:var(--steel);font-weight:400;letter-spacing:0;margin-top:1px}
+
+  .fl .no{font-family:"JetBrains Mono";font-weight:700;font-size:15px;color:var(--bone)}
+  .fl .al{font-size:11px;color:var(--steel);margin-top:2px}
+  .city{font-size:14px;color:var(--bone)}
+  .city small{display:block;color:var(--steel);font-size:11px;margin-top:2px}
+
+  .gate{text-align:center}
+  .gate b{font-family:"JetBrains Mono";font-size:15px;color:var(--bone)}
+  .gate small{display:block;font-size:9px;color:#41566b;letter-spacing:.08em;margin-top:1px}
+
+  .status{justify-self:end;text-align:right}
+  .pill{display:inline-block;font-family:"Oswald";font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    padding:5px 10px;border-radius:5px;white-space:nowrap;font-weight:500}
+  .pill.ontime{background:rgba(52,226,196,.13);color:var(--phosphor)}
+  .pill.delay{background:rgba(255,178,62,.14);color:var(--amber)}
+  .pill.bad{background:rgba(255,92,106,.15);color:var(--danger)}
+  .pill.active{background:rgba(52,226,196,.18);color:var(--phosphor)}
+  .pill.gone{background:rgba(107,130,153,.12);color:var(--steel)}
+  .delta{display:block;font-family:"JetBrains Mono";font-size:10px;color:var(--steel);margin-top:3px}
+
+  .empty{padding:40px 16px;text-align:center;color:var(--steel);font-family:"JetBrains Mono";font-size:13px}
+  footer{padding:14px 16px;color:#41566b;font-size:11px;line-height:1.5;border-top:1px solid var(--line)}
+
+  /* header buttons */
+  .hbtns{display:flex;gap:6px;align-items:center}
+  .hbtn{appearance:none;border:1px solid var(--line);background:#0a121b;color:var(--steel);
+    font-family:"Oswald";font-size:12px;letter-spacing:.08em;padding:8px 11px;border-radius:7px;cursor:pointer;min-height:38px;white-space:nowrap}
+  .hbtn:hover{color:var(--bone);border-color:var(--phosphor)}
+
+  /* wall / fit-to-screen mode */
+  .wall{position:fixed;inset:0;z-index:50;background:var(--void);display:flex;flex-direction:column}
+  .wall[hidden]{display:none}
+  .wallTop{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,var(--panel),var(--panel-2))}
+  .wt-title{font-family:"Oswald";font-weight:600;font-size:20px;letter-spacing:.06em}
+  .wt-title span{color:var(--phosphor)}
+  .wt-clock{margin-left:auto;font-family:"JetBrains Mono";font-size:20px}
+  .wt-page{font-family:"Oswald";font-size:12px;letter-spacing:.14em;color:var(--phosphor);min-width:110px;text-align:right}
+  .wbtn{appearance:none;border:1px solid var(--line);background:#0a121b;color:var(--steel);
+    font-family:"Oswald";font-size:12px;letter-spacing:.08em;padding:8px 12px;border-radius:7px;cursor:pointer}
+  .wbtn:hover{color:var(--bone);border-color:var(--phosphor)}
+  .wallArea{flex:1;min-height:0;padding:8px 12px;overflow:hidden}
+  .wallGrid{display:grid;gap:8px;height:100%;align-content:start}
+  .wcell{display:grid;grid-template-columns:52px 1fr auto auto;gap:8px;align-items:center;
+    background:var(--panel-2);border:1px solid var(--line-soft);border-radius:7px;padding:6px 10px;overflow:hidden}
+  .wcell.dir-dep{box-shadow:inset 3px 0 0 var(--amber)}
+  .wcell.dir-arr{box-shadow:inset 3px 0 0 var(--phosphor)}
+  .wc-time{font-family:"JetBrains Mono";font-size:15px;font-weight:700;color:var(--bone)}
+  .wc-main{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wc-fl{font-family:"JetBrains Mono";font-weight:700;font-size:14px;color:var(--bone)}
+  .wc-city{font-size:12px;color:var(--steel);margin-left:7px}
+  .wc-gate{font-family:"JetBrains Mono";font-size:13px;color:var(--bone);min-width:34px;text-align:right}
+  .wc-stat{font-family:"Oswald";font-size:11px;letter-spacing:.05em;white-space:nowrap;text-align:right;min-width:64px}
+  .wc-stat.ontime,.wc-stat.active{color:var(--phosphor)}
+  .wc-stat.delay{color:var(--amber)} .wc-stat.bad{color:var(--danger)} .wc-stat.gone{color:var(--steel)}
+  .wallProg{height:3px;background:#0c1620}
+  .wallProg i{display:block;height:100%;width:0;background:var(--phosphor);transition:width .12s linear}
+  @media (max-width:600px){ .hbtn{padding:8px 9px;font-size:11px} .wt-title{font-size:16px} .wt-clock{font-size:16px} }
+
+  @media (max-width:720px){
+    .head,.row{grid-template-columns:74px 1fr 60px 96px;gap:8px;padding-left:12px;padding-right:12px}
+    .head span:nth-child(3),.row .city{display:none}      /* hide city col on phone, fold into flight */
+    .fl .al{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
+    .ident .iata{font-size:24px}.clock .t{font-size:18px}
+    .head span:nth-child(4){text-align:center}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="ident">
+      <div class="iata">MEL</div>
+      <div class="meta"><b>YMML</b><span>Melbourne — Tullamarine</span></div>
+    </div>
+    <span class="badge" id="srcBadge">DEMO DATA</span>
+    <div class="clock"><div class="t mono" id="clock">--:--</div><div class="d" id="date">—</div></div>
+    <div class="hbtns">
+      <button id="wallBtn" class="hbtn" title="Fit all of today's flights on one screen">▦ Wall</button>
+      <button id="fsBtn" class="hbtn" title="Fullscreen">⤢</button>
+    </div>
+  </header>
+
+  <div class="controls">
+    <div class="row1">
+      <div class="seg" role="group" aria-label="Direction">
+        <button data-k="dep" aria-pressed="false"><span class="ar">↑</span> Departures</button>
+        <button data-k="arr" aria-pressed="false"><span class="ar">↓</span> Arrivals</button>
+        <button data-k="both" aria-pressed="true"><span class="ar">⇅</span> Both</button>
+      </div>
+      <label class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="search" placeholder="flight · city · airline · gate" autocomplete="off" spellcheck="false">
+      </label>
+    </div>
+    <div class="row2">
+      <span class="chip lbl">Show</span>
+      <button class="chip" data-f="all" aria-pressed="true">All</button>
+      <button class="chip" data-f="ontime" aria-pressed="false">On time</button>
+      <button class="chip" data-f="delay" aria-pressed="false">Delayed</button>
+      <button class="chip" data-f="t" data-t="T1" aria-pressed="false">T1</button>
+      <button class="chip" data-f="t" data-t="T2" aria-pressed="false">T2</button>
+      <button class="chip" data-f="t" data-t="T3" aria-pressed="false">T3</button>
+      <button class="chip" data-f="t" data-t="T4" aria-pressed="false">T4</button>
+      <span class="chip lbl" style="margin-left:6px">Within</span>
+      <button class="chip" data-w="2" aria-pressed="true">2h</button>
+      <button class="chip" data-w="6" aria-pressed="false">6h</button>
+      <button class="chip" data-w="all" aria-pressed="false">All day</button>
+      <span class="grow"></span>
+      <span class="count" id="count">—</span>
+    </div>
+  </div>
+
+  <div class="head">
+    <span id="hTime">Scheduled</span><span>Flight</span><span id="hCity">To</span><span>Gate</span><span>Status</span>
+  </div>
+  <div class="rows" id="rows"></div>
+
+  <footer id="foot"></footer>
+
+  <div id="wall" class="wall" hidden>
+    <div class="wallTop">
+      <span class="wt-title">MEL · <span id="wallDir">DEPARTURES</span></span>
+      <span class="wt-clock" id="wallClock">--:--</span>
+      <span class="wt-page" id="wallPage"></span>
+      <button class="wbtn" id="wallFs">⤢ Fullscreen</button>
+      <button class="wbtn" id="wallExit">✕ Exit</button>
+    </div>
+    <div class="wallArea" id="wallArea"><div class="wallGrid" id="wallGrid"></div></div>
+    <div class="wallProg"><i id="wallProgBar"></i></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* =======================================================================
+   LIVE-DATA HOOKUP  — flip USE_MOCK to false once the relay + feed are set
+   =======================================================================
+   1. Deploy the Cloudflare Worker (mel-flight-proxy.js) → get its URL.
+   2. Grab the airport's departures + arrivals feed URLs from the browser
+      Network tab and paste them below.
+   3. Set USE_MOCK = false. The parser in mapFeed() may need its field
+      names tweaked to match the airport's JSON — that's the only edit.
+*/
+const CONFIG = {
+  USE_MOCK: true,
+  PROXY_URL: "",            // e.g. "https://mel-flight-proxy.gab.workers.dev"
+  FEED_URL_DEP: "",         // airport departures feed URL
+  FEED_URL_ARR: "",         // airport arrivals feed URL
+  REFRESH_SECONDS: 60,
+  ON_TIME_THRESHOLD_MIN: 15 // delay below this still counts as "on time"
+};
+
+/* ---------- state ---------- */
+let direction = "both";
+let statusFilter = "all";   // all | ontime | delay
+let terminalFilter = null;  // null | T1..T4
+let windowHours = 2;        // null = all day
+let query = "";
+let data = { dep: [], arr: [] };
+let wallMode=false, wallPages=[], wallPageIdx=0, wallTimer=null, wallProgT=null;
+
+const $ = s => document.querySelector(s);
+const melFmt = new Intl.DateTimeFormat("en-AU",{timeZone:"Australia/Melbourne",hour:"2-digit",minute:"2-digit",hour12:false});
+const fmt = d => d ? melFmt.format(d) : "—";
+
+/* minutes until estimated departure/arrival (null once the flight has gone) */
+function etaInfo(f){
+  const a = assess(f);
+  if (a.gone) return null;
+  return { mins: Math.round(((f.estimated||f.scheduled).getTime() - Date.now())/60000) };
+}
+function fmtCountdown(mins){
+  if (mins <= 0) return "due now";
+  if (mins < 60) return "in " + mins + " min";
+  const h = Math.floor(mins/60), m = mins%60;
+  return "in " + h + "h" + (m ? " " + m + "m" : "");
+}
+
+/* ---------- on-time / late logic (this survives into the live version) ---------- */
+function assess(f){
+  const now = Date.now();
+  const sch = f.scheduled.getTime();
+  const est = (f.estimated || f.scheduled).getTime();
+  const delay = Math.round((est - sch) / 60000);
+  const op = (f.opStatus || "").toLowerCase();
+  const isDep = f.dir === "dep";
+
+  if (op.includes("cancel"))
+    return { pill:"CANCELLED", cls:"bad", delay, gone:true };
+  if (op.includes("depart") || op.includes("landed") || now > est + 90000)
+    return { pill: isDep ? "DEPARTED" : "LANDED", cls:"gone", delay, gone:true };
+
+  // boarding window (departures only)
+  if (isDep && now >= est - 25*60000 && now < est){
+    if (op.includes("final")) return { pill:"FINAL CALL", cls:"active", delay };
+    if (op.includes("closed")) return { pill:"GATE CLOSED", cls:"delay", delay };
+    return { pill:"BOARDING", cls:"active", delay };
+  }
+  if (delay >= 45) return { pill:`DELAYED`, cls:"bad", delay };
+  if (delay >= CONFIG.ON_TIME_THRESHOLD_MIN) return { pill:`DELAYED`, cls:"delay", delay };
+  return { pill:"ON TIME", cls:"ontime", delay };
+}
+
+/* ---------- render ---------- */
+function getFiltered(){
+  const both = direction === "both";
+  const baseList = both ? [...(data.dep||[]), ...(data.arr||[])] : (data[direction]||[]);
+  const list = baseList.slice().sort((a,b)=>(a.estimated||a.scheduled)-(b.estimated||b.scheduled));
+  const q = query.toLowerCase();
+  return list.filter(f=>{
+    const a = assess(f);
+    if (windowHours != null){
+      const t = (f.estimated||f.scheduled).getTime();
+      if (t < Date.now() - 20*60000 || t > Date.now() + windowHours*3600000) return false;
+    }
+    if (statusFilter==="ontime" && !(a.cls==="ontime"||a.cls==="active")) return false;
+    if (statusFilter==="delay" && !(a.cls==="delay"||a.cls==="bad") ) return false;
+    if (terminalFilter && f.terminal!==terminalFilter) return false;
+    if (q){
+      const hay = `${f.flight} ${f.airline} ${f.city} ${f.gate} ${f.terminal} ${f.rego||""}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function render(){
+  const both = direction === "both";
+  $("#hTime").textContent = "Scheduled";
+  $("#hCity").textContent = both ? "To / From" : (direction==="dep" ? "To" : "From");
+  const filtered = getFiltered();
+  $("#count").textContent = `${filtered.length} flight${filtered.length===1?"":"s"}`;
+  const rows = $("#rows");
+  rows.classList.toggle("both", both);
+  if (!filtered.length){ rows.innerHTML = `<div class="empty">No flights match.</div>`; return; }
+
+  rows.innerHTML = filtered.map(f=>{
+    const a = assess(f);
+    const delayed = a.delay>=CONFIG.ON_TIME_THRESHOLD_MIN && !a.gone;
+    const estCls = a.delay>=45?"bad":(delayed?"late":"ok");
+    const estLine = (a.delay>0 && !a.gone)
+      ? `<div class="est ${estCls}">Now ${fmt(f.estimated)}</div>`
+      : (a.gone && a.delay>0 ? `<div class="est ok">${fmt(f.estimated)}</div>` : "");
+    const delta = (a.delay>0) ? `<span class="delta">+${a.delay} min</span>` : "";
+    const eta = etaInfo(f);
+    const etaLine = eta ? `<div class="eta ${eta.mins<=20?"soon":""}">${fmtCountdown(eta.mins)}</div>` : "";
+    const dt = both ? `<span class="dt ${f.dir}">${f.dir==="dep"?"DEP":"ARR"}</span>` : "";
+    const rego = f.rego ? ` · <span class="rego" data-rego="${f.rego}">${f.rego}</span>` : "";
+    return `
+      <div class="row dir-${f.dir}">
+        <div class="time"><div class="sch">${fmt(f.scheduled)}</div>${estLine}${etaLine}</div>
+        <div class="fl"><div class="no">${f.flight}</div><div class="al">${dt}${f.airline}${rego}</div></div>
+        <div class="city">${f.city}<small>${f.terminal}</small></div>
+        <div class="gate"><b>${f.gate||"—"}</b><small>${f.terminal}</small></div>
+        <div class="status"><span class="pill ${a.cls}">${a.pill}</span>${delta}</div>
+      </div>`;
+  }).join("");
+}
+
+/* ---------- data loading ---------- */
+async function load(){
+  if (CONFIG.USE_MOCK){ data.dep = buildMock("dep"); data.arr = buildMock("arr"); render(); if(wallMode) layoutWall(); return; }
+  try{
+    const [dep, arr] = await Promise.all([fetchFeed(CONFIG.FEED_URL_DEP,"dep"), fetchFeed(CONFIG.FEED_URL_ARR,"arr")]);
+    data.dep = dep; data.arr = arr;
+    $("#srcBadge").textContent = "LIVE"; $("#srcBadge").classList.add("live");
+    render(); if(wallMode) layoutWall();
+  }catch(e){
+    $("#srcBadge").textContent = "FEED ERROR";
+    $("#rows").innerHTML = `<div class="empty">Couldn't load the live feed (${e.message}).<br>Check the proxy + feed URLs.</div>`;
+  }
+}
+async function fetchFeed(feedUrl, dir){
+  const url = `${CONFIG.PROXY_URL}/?u=${encodeURIComponent(feedUrl)}`;
+  const res = await fetch(url, { cache:"no-store" });
+  if (!res.ok) throw new Error("HTTP "+res.status);
+  return mapFeed(await res.json(), dir);
+}
+/* Convert the airport's JSON into our row shape.
+   >>> Adjust the field names on the right once we see the real feed. <<<
+   If the feed has no aircraft registration, tail-number filtering won't be
+   available from this source — flight/airline/gate filtering still works. */
+function mapFeed(raw, dir){
+  const arr = Array.isArray(raw) ? raw : (raw.flights || raw.data || raw.results || []);
+  return arr.map(x => ({
+    dir,
+    flight:    x.flightNumber || x.flight || x.number || "",
+    airline:   x.airline || x.airlineName || x.carrier || "",
+    city:      x.city || x.port || x.destination || x.origin || "",
+    terminal:  x.terminal || x.term || "",
+    gate:      x.gate || x.gateNumber || "",
+    rego:      x.registration || x.aircraftRegistration || x.tail || x.acReg || "",
+    scheduled: new Date(x.scheduledTime || x.scheduled || x.schedTime),
+    estimated: new Date(x.estimatedTime || x.estimated || x.estTime || x.scheduledTime || x.scheduled),
+    opStatus:  x.status || x.flightStatus || ""
+  })).filter(f => f.flight && !isNaN(f.scheduled));
+}
+
+/* ---------- sample data (clearly fake, time-relative so it feels live) ---------- */
+function buildMock(kind){
+  const now = Date.now(), m = 60000;
+  const D = (offset, delay=0) => ({ scheduled:new Date(now+offset*m), estimated:new Date(now+(offset+delay)*m) });
+  // [flight, airline, city, terminal, gate, rego, schedOffsetMin, delayMin, opStatus]
+  // Tails VH-VKJ, VH-ZNB and VH-VFK appear in BOTH lists — search one to see
+  // its arrival and its turnaround departure together in the Both view.
+  const dep = [
+    ["QF430","Qantas","Sydney","T1","D12","VH-VZR", -8, 0,"departed"],
+    ["VA822","Virgin Australia","Brisbane","T3","14","VH-YIB", -2, 0,"boarding"],
+    ["JQ510","Jetstar","Gold Coast","T4","41","VH-VKJ", 36, 0,""],
+    ["SQ218","Singapore Airlines","Singapore","T2","G20","9V-SKU", 18, 22,""],
+    ["EK405","Emirates","Dubai","T2","H24","A6-EQK", 25, 0,""],
+    ["VA331","Virgin Australia","Adelaide","T3","16","VH-YIA", 28, 15,""],
+    ["QF607","Qantas","Perth","T1","D7","VH-VZQ", 40, 0,""],
+    ["ZL241","Rex Airlines","Mildura","T4","48","VH-ZRC", 47, 0,""],
+    ["NZ124","Air New Zealand","Auckland","T2","11","ZK-NZE", 55, 0,""],
+    ["QR907","Qatar Airways","Doha","T2","G22","A7-BAC", 70, 35,""],
+    ["VA1391","Virgin Australia","Canberra","T3","12","VH-YIF", 82, 0,"cancelled"],
+    ["QF445","Qantas","Sydney","T1","D14","VH-VZX", 95, 0,""],
+    ["TR19","Scoot","Singapore","T2","H21","9V-OJD", 110, 18,""],
+    ["JQ716","Jetstar","Cairns","T4","43","VH-VGF", 125, 0,""],
+    ["JQ35","Jetstar","Denpasar (Bali)","T4","44","VH-VFK", 140, 0,""],
+    ["QF93","Qantas","Los Angeles","T1","9","VH-ZNB", 160, 0,""],
+  ];
+  const arr = [
+    ["QF400","Qantas","Sydney","T1","D11","VH-VZS", -14, 0,"landed"],
+    ["JQ511","Jetstar","Gold Coast","T4","42","VH-VKJ", -4, 0,"landed"],
+    ["EK406","Emirates","Dubai","T2","H23","A6-EQL", 3, 0,""],
+    ["VA823","Virgin Australia","Brisbane","T3","15","VH-YIB", 8, 25,""],
+    ["SQ227","Singapore Airlines","Singapore","T2","G19","9V-SMF", 14, 0,""],
+    ["QF94","Qantas","Los Angeles","T1","8","VH-ZNB", 20, 18,""],
+    ["NZ125","Air New Zealand","Auckland","T2","10","ZK-NZE", 27, 0,""],
+    ["JQ34","Jetstar","Denpasar (Bali)","T4","45","VH-VFK", 28, 48,""],
+    ["VA332","Virgin Australia","Adelaide","T3","17","VH-YIA", 41, 0,""],
+    ["CX105","Cathay Pacific","Hong Kong","T2","G21","B-LRA", 52, 0,""],
+    ["QF608","Qantas","Perth","T1","D6","VH-VZQ", 66, 12,""],
+    ["ZL242","Rex Airlines","Albury","T4","49","VH-ZRC", 74, 0,""],
+    ["QR906","Qatar Airways","Doha","T2","H22","A7-BAB", 88, 0,"cancelled"],
+    ["MU737","China Eastern","Shanghai","T2","G18","B-20A", 105, 40,""],
+  ];
+  const src = kind==="dep" ? dep : arr;
+  return src.map(([flight,airline,city,terminal,gate,rego,off,delay,op])=>{
+    const t = D(off,delay);
+    return { dir:kind, flight,airline,city,terminal,gate,rego,scheduled:t.scheduled,estimated:t.estimated,opStatus:op };
+  });
+}
+
+/* ---------- events ---------- */
+document.querySelectorAll(".seg button").forEach(b=>b.addEventListener("click",()=>{
+  direction=b.dataset.k;
+  document.querySelectorAll(".seg button").forEach(x=>x.setAttribute("aria-pressed", x===b?"true":"false"));
+  render();
+}));
+document.querySelectorAll(".chip").forEach(c=>{
+  if (c.classList.contains("lbl")) return;
+  c.addEventListener("click",()=>{
+    if (c.dataset.f==="t"){
+      const t=c.dataset.t;
+      terminalFilter = terminalFilter===t ? null : t;
+      document.querySelectorAll('.chip[data-f="t"]').forEach(x=>x.setAttribute("aria-pressed", x.dataset.t===terminalFilter?"true":"false"));
+    } else if (c.dataset.w!==undefined){
+      windowHours = c.dataset.w==="all" ? null : Number(c.dataset.w);
+      document.querySelectorAll('.chip[data-w]').forEach(x=>x.setAttribute("aria-pressed", x===c?"true":"false"));
+    } else {
+      statusFilter = (statusFilter===c.dataset.f) ? "all" : c.dataset.f;
+      document.querySelectorAll('.chip[data-f="all"],.chip[data-f="ontime"],.chip[data-f="delay"]')
+        .forEach(x=>x.setAttribute("aria-pressed", x.dataset.f===statusFilter?"true":"false"));
+      if (statusFilter==="all") $('.chip[data-f="all"]').setAttribute("aria-pressed","true");
+    }
+    render(); if(wallMode) layoutWall();
+  });
+});
+$("#search").addEventListener("input",e=>{query=e.target.value.trim();render();});
+
+/* tap a tail number → show that aircraft's arrival + departure together */
+$("#rows").addEventListener("click", e=>{
+  const r = e.target.closest(".rego");
+  if (!r) return;
+  const reg = r.dataset.rego;
+  query = reg;
+  $("#search").value = reg;
+  direction = "both";
+  document.querySelectorAll(".seg button").forEach(x=>x.setAttribute("aria-pressed", x.dataset.k==="both"?"true":"false"));
+  render();
+});
+
+/* ---------- wall / fit-to-screen mode ---------- */
+function wallCell(f){
+  const a = assess(f);
+  let label, cls = a.cls;
+  if (a.cls==="bad" && a.gone) label="CXL";
+  else if (a.gone) label = f.dir==="dep" ? "DEPARTED" : "LANDED";
+  else if (a.cls==="ontime") label="ON TIME";
+  else if (a.cls==="active") label=a.pill;
+  else if (a.delay>0) label="LATE +"+a.delay;
+  else label=a.pill;
+  const eta = etaInfo(f);
+  const etaTxt = eta ? fmtCountdown(eta.mins) : "";
+  return `<div class="wcell dir-${f.dir}">
+    <div class="wc-time">${fmt(f.scheduled)}</div>
+    <div class="wc-main"><span class="wc-fl">${f.flight}</span><span class="wc-city">${f.city}</span></div>
+    <div class="wc-gate">${f.gate||"—"}</div>
+    <div class="wc-stat ${cls}">${label}<small class="wc-eta">${etaTxt}</small></div>
+  </div>`;
+}
+function layoutWall(){
+  if (!wallMode) return;
+  const list = getFiltered();
+  document.getElementById("wallDir").textContent =
+    direction==="both" ? "ALL MOVEMENTS" : direction==="dep" ? "DEPARTURES" : "ARRIVALS";
+  const area = document.getElementById("wallArea");
+  const cellMinW=232, cellH=52, gap=8;
+  const cols = Math.max(1, Math.floor((area.clientWidth + gap)/(cellMinW + gap)));
+  const rows = Math.max(1, Math.floor((area.clientHeight + gap)/(cellH + gap)));
+  const perPage = Math.max(1, cols*rows);
+  const grid = document.getElementById("wallGrid");
+  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0,1fr))`;
+  grid.style.gridAutoRows = cellH+"px";
+  wallPages = [];
+  for (let i=0;i<list.length;i+=perPage) wallPages.push(list.slice(i,i+perPage));
+  if (!wallPages.length) wallPages=[[]];
+  if (wallPageIdx>=wallPages.length) wallPageIdx=0;
+  showWallPage();
+  setupRotation();
+}
+function showWallPage(){
+  const page = wallPages[wallPageIdx]||[];
+  document.getElementById("wallGrid").innerHTML = page.map(wallCell).join("");
+  document.getElementById("wallPage").textContent =
+    wallPages.length>1 ? `PAGE ${wallPageIdx+1} / ${wallPages.length}` : `${page.length} FLIGHTS`;
+}
+function setupRotation(){
+  clearInterval(wallTimer); clearInterval(wallProgT);
+  const bar = document.getElementById("wallProgBar");
+  if (wallPages.length<=1){ bar.style.width="0%"; return; }
+  const PAGE_MS=12000; let t0=Date.now();
+  wallProgT = setInterval(()=>{ bar.style.width = (((Date.now()-t0)%PAGE_MS)/PAGE_MS*100)+"%"; }, 120);
+  wallTimer = setInterval(()=>{ wallPageIdx=(wallPageIdx+1)%wallPages.length; showWallPage(); t0=Date.now(); }, PAGE_MS);
+}
+function enterWall(){ wallMode=true; wallPageIdx=0; document.getElementById("wall").hidden=false; layoutWall(); }
+function exitWall(){ wallMode=false; clearInterval(wallTimer); clearInterval(wallProgT); document.getElementById("wall").hidden=true; }
+function toggleFs(el){
+  const d=document, cur=d.fullscreenElement||d.webkitFullscreenElement;
+  if (!cur){ const fn=el.requestFullscreen||el.webkitRequestFullscreen; if(fn) fn.call(el); }
+  else { const fn=d.exitFullscreen||d.webkitExitFullscreen; if(fn) fn.call(d); }
+}
+document.getElementById("wallBtn").addEventListener("click", enterWall);
+document.getElementById("fsBtn").addEventListener("click", ()=>toggleFs(document.documentElement));
+document.getElementById("wallExit").addEventListener("click", exitWall);
+document.getElementById("wallFs").addEventListener("click", ()=>toggleFs(document.getElementById("wall")));
+window.addEventListener("resize", ()=>{ if(wallMode) layoutWall(); });
+document.addEventListener("fullscreenchange", ()=>{ if(wallMode) layoutWall(); });
+document.addEventListener("webkitfullscreenchange", ()=>{ if(wallMode) layoutWall(); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape" && wallMode) exitWall(); });
+
+/* ---------- clock + lifecycle ---------- */
+function tick(){
+  const n=new Date();
+  $("#clock").textContent = fmt(n);
+  const wc=document.getElementById("wallClock"); if(wc) wc.textContent = fmt(n);
+  try{ $("#date").textContent = new Intl.DateTimeFormat("en-AU",{timeZone:"Australia/Melbourne",weekday:"short",day:"2-digit",month:"short"}).format(n).toUpperCase(); }catch(_){}
+}
+$("#foot").innerHTML = CONFIG.USE_MOCK
+  ? "Showing <b>sample data</b>. Defaults to arrivals + departures due in the <b>next 2 hours</b>, each with a live ETA countdown — widen with the 6h / All day chips. <b>Both</b> merges directions; search or tap a tail (e.g. VH-VKJ) to see one aircraft's arrival + turnaround together. <b>Wall</b> fits the lot on one screen. Connect the airport feed to go live."
+  : "Live from the Melbourne Airport feed via your relay.";
+
+tick(); setInterval(tick,1000);
+load(); setInterval(load, CONFIG.REFRESH_SECONDS*1000);
+setInterval(()=>{ render(); if(wallMode) layoutWall(); }, 30000); // keep ETA countdowns ticking
+</script>
+</body>
+</html>
