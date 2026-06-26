@@ -96,6 +96,7 @@
   .time .est.late{color:var(--amber)} .time .est.bad{color:var(--danger)} .time .est.ok{color:var(--steel)}
   .time .eta{font-family:"JetBrains Mono";font-size:11px;color:var(--steel);margin-top:3px}
   .time .eta.soon{color:var(--phosphor)}
+  .time .eta.late{color:var(--amber)}
   .wc-eta{display:block;font-family:"JetBrains Mono";font-size:10px;color:var(--steel);font-weight:400;letter-spacing:0;margin-top:1px}
 
   .fl .no{font-family:"JetBrains Mono";font-weight:700;font-size:15px;color:var(--bone)}
@@ -149,7 +150,7 @@
   .wc-fl{font-family:"JetBrains Mono";font-weight:700;font-size:14px;color:var(--bone)}
   .wc-city{font-size:12px;color:var(--steel);margin-left:7px}
   .wc-gate{font-family:"JetBrains Mono";font-size:13px;color:var(--bone);min-width:34px;text-align:right}
-  .wc-stat{font-family:"Oswald";font-size:11px;letter-spacing:.05em;white-space:nowrap;text-align:right;min-width:64px}
+  .wc-stat{font-family:"Oswald";font-size:11px;letter-spacing:.05em;white-space:nowrap;text-align:right;min-width:78px}
   .wc-stat.ontime,.wc-stat.active{color:var(--phosphor)}
   .wc-stat.delay{color:var(--amber)} .wc-stat.bad{color:var(--danger)} .wc-stat.gone{color:var(--steel)}
   .wallProg{height:3px;background:#0c1620}
@@ -297,6 +298,9 @@ function assess(f){
     if (op.includes("closed")) return { pill:"GATE CLOSED", cls:"delay", delay };
     return { pill:"BOARDING", cls:"active", delay };
   }
+  // final-approach window (arrivals only) — shows LANDING before it flips to LANDED
+  if (!isDep && now >= est - 10*60000 && now <= est + 90000)
+    return { pill:"LANDING", cls:"active", delay };
   if (delay >= 45) return { pill:`DELAYED`, cls:"bad", delay };
   if (delay >= CONFIG.ON_TIME_THRESHOLD_MIN) return { pill:`DELAYED`, cls:"delay", delay };
   return { pill:"ON TIME", cls:"ontime", delay };
@@ -337,19 +341,23 @@ function render(){
 
   rows.innerHTML = filtered.map(f=>{
     const a = assess(f);
-    const delayed = a.delay>=CONFIG.ON_TIME_THRESHOLD_MIN && !a.gone;
-    const estCls = a.delay>=45?"bad":(delayed?"late":"ok");
-    const estLine = (a.delay>0 && !a.gone)
-      ? `<div class="est ${estCls}">Now ${fmt(f.estimated)}</div>`
-      : (a.gone && a.delay>0 ? `<div class="est ok">${fmt(f.estimated)}</div>` : "");
-    const delta = (a.delay>0) ? `<span class="delta">+${a.delay} min</span>` : "";
+    const lbl = f.dir==="dep" ? "ETD" : "ETA";
     const eta = etaInfo(f);
-    const etaLine = eta ? `<div class="eta ${eta.mins<=20?"soon":""}">${fmtCountdown(eta.mins)}</div>` : "";
+    let timeLine;
+    if (a.gone){
+      timeLine = `<div class="eta">${lbl} ${fmt(f.estimated)}</div>`;
+    } else {
+      const late = a.delay>=CONFIG.ON_TIME_THRESHOLD_MIN;
+      const soon = eta && eta.mins<=20;
+      const cls = late ? "late" : (soon ? "soon" : "");
+      timeLine = `<div class="eta ${cls}">${lbl} ${fmt(f.estimated)}${eta ? " · " + fmtCountdown(eta.mins) : ""}</div>`;
+    }
+    const delta = (a.delay>0) ? `<span class="delta">+${a.delay} min</span>` : "";
     const dt = both ? `<span class="dt ${f.dir}">${f.dir==="dep"?"DEP":"ARR"}</span>` : "";
     const rego = f.rego ? ` · <span class="rego" data-rego="${f.rego}">${f.rego}</span>` : "";
     return `
       <div class="row dir-${f.dir}">
-        <div class="time"><div class="sch">${fmt(f.scheduled)}</div>${estLine}${etaLine}</div>
+        <div class="time"><div class="sch">${fmt(f.scheduled)}</div>${timeLine}</div>
         <div class="fl"><div class="no">${f.flight}</div><div class="al">${dt}${f.airline}${rego}</div></div>
         <div class="city">${f.city}<small>${f.terminal}</small></div>
         <div class="gate"><b>${f.gate||"—"}</b><small>${f.terminal}</small></div>
@@ -494,8 +502,8 @@ function wallCell(f){
   else if (a.cls==="active") label=a.pill;
   else if (a.delay>0) label="LATE +"+a.delay;
   else label=a.pill;
-  const eta = etaInfo(f);
-  const etaTxt = eta ? fmtCountdown(eta.mins) : "";
+  const lbl = f.dir==="dep" ? "ETD" : "ETA";
+  const etaTxt = `${lbl} ${fmt(f.estimated)}`;
   return `<div class="wcell dir-${f.dir}">
     <div class="wc-time">${fmt(f.scheduled)}</div>
     <div class="wc-main"><span class="wc-fl">${f.flight}</span><span class="wc-city">${f.city}</span></div>
@@ -561,7 +569,7 @@ function tick(){
   try{ $("#date").textContent = new Intl.DateTimeFormat("en-AU",{timeZone:"Australia/Melbourne",weekday:"short",day:"2-digit",month:"short"}).format(n).toUpperCase(); }catch(_){}
 }
 $("#foot").innerHTML = CONFIG.USE_MOCK
-  ? "Showing <b>sample data</b>. Defaults to arrivals + departures due in the <b>next 2 hours</b>, each with a live ETA countdown — widen with the 6h / All day chips. <b>Both</b> merges directions; search or tap a tail (e.g. VH-VKJ) to see one aircraft's arrival + turnaround together. <b>Wall</b> fits the lot on one screen. Connect the airport feed to go live."
+  ? "Showing <b>sample data</b>. Defaults to arrivals + departures due in the <b>next 2 hours</b>, each with its <b>ETA / ETD</b> time and a live countdown — widen with the 6h / All day chips. <b>Both</b> merges directions; search or tap a tail (e.g. VH-VKJ) to see one aircraft's arrival + turnaround together. <b>Wall</b> fits the lot on one screen. Connect the airport feed to go live."
   : "Live from the Melbourne Airport feed via your relay.";
 
 tick(); setInterval(tick,1000);
